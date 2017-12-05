@@ -1,0 +1,5 @@
+TF.control_dependencies 指执行某个操作前，要先执行一些操作：
+     opt = tf.train.Optimizer().minize(loss)
+     with tf.control_dependencies([opt]):#先执行完opt操作，再执行后面的操作
+        ....
+        
