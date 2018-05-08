@@ -1,0 +1,9 @@
+# Tensorflow模型导入方法\n
+存储后文件夹里有：\n
+  ckeckpoint :记录保存信息，通过它可以定位最新的保存信息\n
+  model.ckpt-0.data-00000-of-00001：保存参数值\n
+  model.ckpt-0.index：
+  model.ckpt-0.meta
+  ...
+  
+ 
