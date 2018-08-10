@@ -4,7 +4,7 @@
 
 [官方readme](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/eager/README.md )
 
-[eager execution 用户指南 ](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/eager/python/g3doc/guide.md )
+[eager execution 用户指南 ](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/eager/python/g3doc/guide.md )（包括几个使用动态图的例子）
 
 Eager Execution 是一个运行定义的   **接口**，一旦被Python调用，就立即执行
 
@@ -81,6 +81,22 @@ Eager Execution 是一个运行定义的   **接口**，一旦被Python调用，
   print(grad_log1pexp(100.))
   # [1.0]
   ```
+  梯度扩展：
+
+  原始的tf.gradients_function的衍生版本反映了autograd的梯度，可以在一个已有的函数内调用tf.gradients_function N次获得N阶导数，即
+
+  ```
+  def factorial():
+  	def f(x):
+  		return tf.pow(x,n)
+  	for i in range(n)
+  		f = tfe.gradients_function(f)
+  	return f(1.)
+  	
+  		
+  ```
+
+  
 
 * 建立模型
 
@@ -178,4 +194,5 @@ print(m)
 
 
 * [安装Tensorflow的nightly版本](https://github.com/tensorflow/tensorflow#installation )
-* 
+
+  一般使用tf.layer.Conv2D() 或者Kears来构建网络， 然后在main函数中开启eager ececution `tfe.enable_eager_execution`,其他都一样。
