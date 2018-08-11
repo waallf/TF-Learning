@@ -10,7 +10,7 @@
 
 
 
-## 数据供给
+###数据供给
 
 TF的数据供给机制允许将数据直接输入到张量中，因此python运算可以直接把数据设置到运算图中。
 
@@ -37,6 +37,8 @@ with tf.Session():
 6. 纪录解析器
 7. *可配置的*预处理器
 8. 样本队列
+
+![AnimatedFileQueues](./assets/AnimatedFileQueues.gif)
 
 ### 文件名，乱序，最大迭代数 
 
@@ -216,5 +218,92 @@ def input_pipeline(filenames, batch_size, read_threads, num_epochs=None):
 - 避免了两个不同的线程从同一个文件中读取同一个样本。
 - 避免了过多的磁盘搜索操作。
 
-# tf.data
+
+
+#### 创建线程并使用QueueRunner来读取
+
+* 在进行训练步骤之前，需要调用`tf.train.start_queue_runners`，它将会启动输入管道线程，填充样本到队列中，以便可以拿到样本。 在调用他时，最好配合使用`tf.train.Coordinator`
+
+* 如果设置了迭代次数  (`tf.train.string_input_producer`中设置`num_epoch`),则可以使用以下代码：
+
+  ```
+  # Create the graph, etc.
+  init_op = tf.initialize_all_variables()
+  
+  # Create a session for running operations in the Graph.
+  sess = tf.Session()
+  
+  # Initialize the variables (like the epoch counter).
+  sess.run(init_op)
+  
+  # Start input enqueue threads.
+  coord = tf.train.Coordinator()
+  threads = tf.train.start_queue_runners(sess=sess,coord=coord)
+  try:
+  	while not coord.should_stop():
+  		sess.run(train_op)
+  except tf.errors.OutOfRangeError:
+  	# Create the graph, etc.
+  init_op = tf.initialize_all_variables()
+  
+  # Create a session for running operations in the Graph.
+  sess = tf.Session()
+  
+  # Initialize the variables (like the epoch counter).
+  sess.run(init_op)
+  
+  # Start input enqueue threads.
+  coord = tf.train.Coordinator()
+  threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+  
+  try:
+      while not coord.should_stop():
+          # Run training steps or whatever
+          sess.run(train_op)
+  
+  except tf.errors.OutOfRangeError:
+      print 'Done training -- epoch limit reached'
+  finally:
+      # When done, ask the threads to stop.
+      coord.request_stop()
+  
+  # Wait for threads to finish.
+  coord.join(threads)
+  sess.close()
+  ```
+
+  **达到训练步数后怎样清理关闭线程 ** 
+
+  当达到设置的训练步数后，会激发OutOfRange错误，让偶关闭文件名队列，清理线程，关闭队列做了两件事情：
+
+  * 如果还试着对文件名队列执行入队操作时将发生错误 
+  * 任何当前或将来出队操作要么成功（队列中还有足够的元素）或立即失败，不会再等待足够的元素加入其中。
+
+  当关闭文件名队列的时候，有可能还有文件在该队列中，那么下一阶段的操作（reader）还会执行一段时间，一旦文件名队列为空以后，再读取数据将会发生`OutOfRange` 错误。在这种情况下，即使你可能有一个QueueRunner关联着多个线程。如果这不是在QueueRunner中的最后那个线程，`OutOfRange`错误仅仅只会使得一个线程退出。这使得其他那些正处理自己的最后一个文件的线程继续运行，直至他们完成为止。 （但如果假设你使用的是[`tf.train.Coordinator`](http://wiki.jikexueyuan.com/project/api_docs/python/train.html)，其他类型的错误将导致所有线程停止）。一旦所有的reader线程触发`OutOfRange`错误，然后才是下一个队列，再是样本队列被关闭。 
+
+  同样，样本队列中会有一些已经入队的元素，所以训练将持续到队列中没有样本为止，。如果样本队列是一个[`RandomShuffleQueue`](http://wiki.jikexueyuan.com/project/api_docs/python/io_ops.html)，因为你使用了`shuffle_batch` 或者 `shuffle_batch_join`，所以通常不会出现以往那种队列中的元素会比`min_after_dequeue` 定义的更少的情况。 然而，一旦该队列被关闭`min_after_dequeue`设置的限定值将失效，最终队列将为空。在这一点来说，当实际训练线程尝试从样本队列中取出数据时，将会触发`OutOfRange`错误，然后训练线程会退出。一旦所有的培训线程完成，[`tf.train.Coordinator.join`](http://wiki.jikexueyuan.com/project/api_docs/python/train.html)会返回，就可以正常退出了。 
+
+  
+
+  ### 筛选记录或每个记录产生多个样本
+
+  举个例子，有形式为`[x, y, z]`的样本，我们可以生成一批形式为`[batch, x, y, z]`的样本。 如果你想滤除这个记录（或许不需要这样的设置），那么可以设置batch的大小为0；但如果你需要每个记录产生多个样本，那么batch的值可以大于1。 然后很简单，只需调用批处理函数（比如： `shuffle_batch` or `shuffle_batch_join`）去设置`enqueue_many=True`就可以实现。（`enqueue_many`用于设置在每一次读取数据时，每个样例是否只读入一次）
+
+  
+
+  ### 预加载数据
+
+  `tf.placeholder` 
+
+  ### 多管道输入
+
+  就是再训练的同时也读入了验证集数据，进行验证
+
+  ---
+
+  # 另一种速记读取方法
+
+  
+
+  tf.data
 
