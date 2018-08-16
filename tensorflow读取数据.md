@@ -244,32 +244,7 @@ def input_pipeline(filenames, batch_size, read_threads, num_epochs=None):
   		sess.run(train_op)
   except tf.errors.OutOfRangeError:
   	# Create the graph, etc.
-  init_op = tf.initialize_all_variables()
   
-  # Create a session for running operations in the Graph.
-  sess = tf.Session()
-  
-  # Initialize the variables (like the epoch counter).
-  sess.run(init_op)
-  
-  # Start input enqueue threads.
-  coord = tf.train.Coordinator()
-  threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-  
-  try:
-      while not coord.should_stop():
-          # Run training steps or whatever
-          sess.run(train_op)
-  
-  except tf.errors.OutOfRangeError:
-      print 'Done training -- epoch limit reached'
-  finally:
-      # When done, ask the threads to stop.
-      coord.request_stop()
-  
-  # Wait for threads to finish.
-  coord.join(threads)
-  sess.close()
   ```
 
   **达到训练步数后怎样清理关闭线程 ** 
@@ -305,5 +280,189 @@ def input_pipeline(filenames, batch_size, read_threads, num_epochs=None):
 
   
 
-  tf.data
+  ### `tf.data.TFRecordDataset`
 
+  [参考](https://blog.csdn.net/yeqiustu/article/details/79793454) 
+
+  
+
+  1.从tfrecord文件创建 TFRecordDataset：
+
+  ​	`dataset = tf.data.TFRecordDataset('xxx.tfrecord')`
+
+  2.解析数据：
+
+  * 解析单个数据：
+
+    ```
+    def parse_exmp(serial_exmp):  	
+    	feats = tf.parse_single_example(serial_exmp, features=	 {'feature':tf.FixedLenFeature([], tf.string),\
+    	'label':tf.FixedLenFeature([10],tf.float32), 'shape':tf.FixedLenFeature([x], tf.int64)})
+    	image = tf.decode_raw(feats['feature'], tf.float32)
+    	label = feats['label']
+    	shape = tf.cast(feats['shape'], tf.int32)
+    	return image, label, shape
+    ```
+
+  * 解析tfrecord中全部数据，使用dataset的map方法：
+
+    ```
+    dataset = dataset.map(parse_exmp) 
+    dataset = dataset.repeat(epochs).shuffle(buffer_size).batch(batch_size)
+    ```
+
+  * 解析完数据后，便可以取出数据进行使用，通过创建iterator进行：
+
+    ```
+    iterator_train = dataset.make_one_shot_iterator()
+    batch_image,batch_label,batch_shape = iterator_train.get_next()
+    
+    ```
+
+  截止到此，读取数据已经完成，接下来是与此方法配套的placeholder用法
+
+  * 创建`iterator placeholder`
+
+    ```
+    handle = tf.placeholder(tf.string,shape[])
+    iterator = tf.data.Iterator.from_string_handle(handle,dataset.output_types,dataset.output_shapes)
+    image,label,shape = iterator.get_next() #现在要依靠它来获得下一批数据
+    
+    with tf.Session() as sess:
+    	handle_train = sess.run(iter_train.string_handle())
+            sess.run([loss, train_op], feed_dict={handle: handle_train}
+    ```
+
+    
+
+   汇总：
+
+  ```
+  import tensorflow as tf
+  
+  train_f, val_f, test_f = ['mnist-%s.tfrecord'%i for i in ['train', 'val', 'test']]
+  
+  def parse_exmp(serial_exmp):
+  	feats = tf.parse_single_example(serial_exmp, features={'feature':tf.FixedLenFeature([], tf.string),\
+  	'label':tf.FixedLenFeature([10],tf.float32), 'shape':tf.FixedLenFeature([], tf.int64)})
+  	image = tf.decode_raw(feats['feature'], tf.float32)
+  	label = feats['label']
+  	shape = tf.cast(feats['shape'], tf.int32)
+  	return image, label, shape
+  
+  
+  def get_dataset(fname):
+  	dataset = tf.data.TFRecordDataset(fname)
+  	return dataset.map(parse_exmp) # use padded_batch method if padding needed
+  
+  epochs = 16
+  batch_size = 50  # when batch_size can't be divided by nDatas, like 56,
+  		# there will be a batch data with nums less than batch_size
+  
+  # training dataset
+  nDatasTrain = 46750
+  dataset_train = get_dataset(train_f)
+  dataset_train = dataset_train.repeat(epochs).shuffle(1000).batch(batch_size) # make sure repeat is ahead batch
+  			# this is different from dataset.shuffle(1000).batch(batch_size).repeat(epochs)
+  			# the latter means that there will be a batch data with nums less than batch_size for each epoch
+  			# if when batch_size can't be divided by nDatas.
+  nBatchs = nDatasTrain*epochs//batch_size
+  
+  # evalation dataset
+  nDatasVal = 8250
+  dataset_val = get_dataset(val_f)
+  dataset_val = dataset_val.batch(nDatasVal).repeat(nBatchs//100*2)
+  
+  # test dataset
+  nDatasTest = 10000
+  dataset_test = get_dataset(test_f)
+  dataset_test = dataset_test.batch(nDatasTest)
+  
+  # make dataset iterator
+  iter_train = dataset_train.make_one_shot_iterator()
+  iter_val   = dataset_val.make_one_shot_iterator()
+  iter_test   = dataset_test.make_one_shot_iterator()
+  
+  # make feedable iterator
+  handle = tf.placeholder(tf.string, shape=[])
+  
+  iterator = tf.data.Iterator.from_string_handle(handle, dataset_train.output_types, dataset_train.output_shapes)
+  
+  x, y_, _ = iterator.get_next()
+  train_op, loss, eval_op = model(x, y_)
+  init = tf.initialize_all_variables()
+  
+  # summary
+  logdir = './logs/m4d2a'
+  def summary_op(datapart='train'):
+  	tf.summary.scalar(datapart + '-loss', loss)
+  	tf.summary.scalar(datapart + '-eval', eval_op)
+  	return tf.summary.merge_all()	
+  summary_op_train = summary_op()
+  summary_op_test = summary_op('val')
+  
+  with tf.Session() as sess:
+  	sess.run(init)
+  	handle_train, handle_val, handle_test = sess.run(
+  		[x.string_handle() for x in [iter_train, iter_val, iter_test]])
+       _, cur_loss, cur_train_eval, summary = sess.run([train_op, loss, eval_op, summary_op_train], feed_dict={handle: handle_train, keep_prob: 0.5} )
+       
+      cur_val_loss, cur_val_eval, summary = sess.run([loss, eval_op, summary_op_test], 
+  			feed_dict={handle: handle_val, keep_prob: 1.0})
+  ```
+
+  
+
+  ###[Dataset输出数据不同迭代器介绍](https://blog.csdn.net/weixin_31767897/article/details/79365968)
+
+  ​	
+
+  ### 使用该方法读取变长数据
+
+  [参考](https://blog.csdn.net/yeqiustu/article/details/79795639) 
+
+  #### 和读取相同长度数据的不同之处
+
+  1. 解析数据时用`tf.VarLenFeature(tf.datatype)`
+
+  2. 使用该方法解析到的数据是一个稀疏tensor，所以要加一个`tf.sparse_tensor_to_dense`
+
+  3. 使用padded_batch来指明各个数据成员要pad的形状，成员若是scalar，则用[ ]，若是list，则用[max_length]，若是array，则用[d1,...,dn]，假如各成员的顺序是scalar数据、list数据、array数据，则padded_shapes=([ ], [mx_length], [d1,...,dn])；
+
+     
+
+  ==例子==
+
+  ```
+  import tensorflow as tf
+  
+  train_f, val_f, test_f = ['mnist-%s.tfrecord'%i for i in ['train', 'val', 'test']]
+  
+  def parse_exmp(serial_exmp):
+  	feats = tf.parse_single_example(serial_exmp, features {'feature':tf.VarLenFeature(tf.float32,
+  		'label':tf.FixedLenFeature([10],tf.float32), 
+  		'shape':tf.FixedLenFeature([], tf.int64)})
+  	image = tf.sparse_tensor_to_dense(feats['feature']) #使用VarLenFeature读入的是一个 sparse_tensor，用该函数进行转换
+  	
+  	label = tf.reshape(feats['label'],[2,5])  #把label变成[2,5]，以说明array数据如何padding
+  	
+  	shape = tf.cast(feats['shape'], tf.int32)
+  	return image, label, shape
+  
+  def get_dataset(fname):
+  	dataset = tf.data.TFRecordDataset(fname)
+  	return dataset.map(parse_exmp) # use padded_batch method if padding needed
+  
+  epochs = 16
+  batch_size = 50  
+  padded_shapes = ([784],[3,5],[]) #把image pad至784，把label pad至[3,5]，shape是一个scalar，不输入数字
+  # training dataset
+  dataset_train = get_dataset(train_f)
+  dataset_train = dataset_train.repeat(epochs).shuffle(1000).padded_batch(batch_size, padded_shapes=padded_shapes)
+  ```
+
+  
+
+  
+
+  
