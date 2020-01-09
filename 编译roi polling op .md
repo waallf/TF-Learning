@@ -1,8 +1,10 @@
 (项目源码链接)[https://github.com/yuxng/SubCNN_T  
 因为他是对cuda8.0编译的，本机cuda9.0所以需要从新编译一遍  
-1.将roi_pooling_op.cc ,roi_pooling_op_gpu.cu.cc,roi_pooling_op_gpu.h拷贝到`YOUR_TENSORFLOW_PATH/lib/python2.7/site-packages/tensorflow/core/user_ops`　　
-  可以通过｀python -c 'import tensorflow as tf; print(tf.__file__)'｀查看tensorflow位置　　
+1.将roi_pooling_op.cc ,roi_pooling_op_gpu.cu.cc,roi_pooling_op_gpu.h拷贝到`YOUR_TENSORFLOW_PATH/lib/python2.7/site-packages/tensorflow/core/user_ops`  　　
+可以通过｀python -c 'import tensorflow as tf; print(tf.__file__)'｀查看tensorflow位置　　
+
 ２．`cd YOUR_TENSORFLOW_PATH/lib/python2.7/site-packages/tensorflow/core/user_ops/`　　
+
 ３．　运行以下命令
 ```
 TF_INC=$(python -c 'import tensorflow as tf; print(tf.sysconfig.get_include())')
@@ -28,5 +30,5 @@ g++ -std=c++11 -shared roi_pooling_op.cc -o roi_pooling_op_gpu.so  roi_pooling_o
 ４．　最后测试是否成功
 ```
 import tensorflow as tf
-a = tf.load_op_library("/usr/local/lib/python3.5/dist-packages/tensorflow/user_ops/roi_pooling_op_gpu.so")
+a = tf.load_op_library("/usr/local/lib/python3.5/dist-packages/tensorflow/core/user_ops/roi_pooling_op_gpu.so")
 ```
